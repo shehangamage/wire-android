@@ -339,10 +339,10 @@ class NormalConversationListRow(context: Context, attrs: AttributeSet, style: In
 
 object ConversationListRow {
 
-  def formatSubtitle(content: String, user: String, group: Boolean, isEphemental: Boolean = false): String = {
+  def formatSubtitle(content: String, user: String, group: Boolean, isEphemeral: Boolean = false): String = {
     val groupSubtitle =  "[[%s]]: %s"
     val singleSubtitle =  "%s"
-    if (group && !isEphemental) {
+    if (group && !isEphemeral) {
       String.format(groupSubtitle, user, content)
     } else {
       String.format(singleSubtitle, content)
@@ -367,6 +367,8 @@ object ConversationListRow {
       ConversationBadge.WaitingConnection
     } else if (unreadCount.mentions > 0 && !conversationData.muted.isAllMuted) {
       ConversationBadge.Mention
+    } else if (unreadCount.quotes > 0 && !conversationData.muted.isAllMuted) {
+      ConversationBadge.Quote
     } else if (!conversationData.muted.isAllAllowed) {
       ConversationBadge.Muted
     } else if (typing) {
@@ -386,7 +388,9 @@ object ConversationListRow {
                                    user:        Option[UserData],
                                    members:     Vector[UserData],
                                    isGroup:     Boolean,
-                                   selfId:      UserId)
+                                   selfId:      UserId,
+                                   isQuote:     Boolean
+                                  )
                                   (implicit context: Context): String = {
 
     lazy val senderName = user.fold(getString(R.string.conversation_list__someone))(_.getDisplayName)
@@ -394,10 +398,13 @@ object ConversationListRow {
 
     if (messageData.isEphemeral) {
       if (messageData.hasMentionOf(selfId)) {
-        if (isGroup) formatSubtitle(getString(R.string.conversation_list__group_eph_and_mention), senderName, isGroup, isEphemental = true)
-        else formatSubtitle(getString(R.string.conversation_list__single_eph_and_mention), senderName, isGroup, isEphemental = true)
+        if (isGroup) formatSubtitle(getString(R.string.conversation_list__group_eph_and_mention), senderName, isGroup, isEphemeral = true)
+        else formatSubtitle(getString(R.string.conversation_list__single_eph_and_mention), senderName, isGroup, isEphemeral = true)
+      } else if (isQuote) {
+        if (isGroup) formatSubtitle(getString(R.string.conversation_list__group_eph_and_quote), senderName, isGroup, isEphemeral = true)
+        else formatSubtitle(getString(R.string.conversation_list__single_eph_and_quote), senderName, isGroup, isEphemeral = true)
       } else
-        formatSubtitle(getString(R.string.conversation_list__ephemeral), senderName, isGroup, isEphemental = true)
+        formatSubtitle(getString(R.string.conversation_list__ephemeral), senderName, isGroup, isEphemeral = true)
     } else {
       messageData.msgType match {
         case Message.Type.TEXT | Message.Type.TEXT_EMOJI_ONLY | Message.Type.RICH_MEDIA =>
@@ -452,12 +459,16 @@ object ConversationListRow {
       ""
     } else if (conv.unreadCount.total == 0 && !conv.isActive) {
       getString(R.string.conversation_list__left_you)
-    } else if ((conv.muted.isAllMuted ||
-      conv.incomingKnockMessage.nonEmpty ||
-      conv.missedCallMessage.nonEmpty ||
-      conv.unreadCount.mentions > 1 ||
-      (conv.unreadCount.mentions == 1 && conv.unreadCount.messages > 0) ||
-      (conv.muted.onlyMentionsAllowed && (conv.unreadCount.mentions > 1 || conv.unreadCount.total - conv.unreadCount.mentions > 0)))
+    } else if (
+      ( conv.muted.isAllMuted ||
+        conv.incomingKnockMessage.nonEmpty ||
+        conv.missedCallMessage.nonEmpty ||
+        conv.unreadCount.mentions > 1 ||
+        conv.unreadCount.quotes > 1 ||
+        (conv.unreadCount.mentions == 1 && (conv.unreadCount.messages > 0 || conv.unreadCount.quotes > 0)) ||
+        (conv.unreadCount.quotes == 1 && conv.unreadCount.messages > 0) ||
+        (conv.muted.onlyMentionsAllowed && (conv.unreadCount.mentions > 1 || conv.unreadCount.quotes > 1 || conv.unreadCount.total - conv.unreadCount.mentions - conv.unreadCount.quotes > 0))
+      )
       && typingUser.isEmpty) {
 
       val normalMessageCount = conv.unreadCount.normal
@@ -466,6 +477,7 @@ object ConversationListRow {
       val likesCount = 0 //TODO: There is no good way to get this so far
       val unsentCount = conv.failedCount
       val mentionsCount = conv.unreadCount.mentions
+      val quotesCount = conv.unreadCount.quotes
 
       val unsentString =
         if (unsentCount > 0)
@@ -478,6 +490,8 @@ object ConversationListRow {
       val strings = Seq(
         if (mentionsCount > 0)
           context.getResources.getQuantityString(R.plurals.conversation_list__mentions_count, mentionsCount, mentionsCount.toString) else "",
+        if (quotesCount > 0)
+          context.getResources.getQuantityString(R.plurals.conversation_list__quotes_count, quotesCount, quotesCount.toString) else "",
         if (missedCallCount > 0) {
           if (isGroupConv) {
             if (conv.unreadCount.total > 1 || conv.isAllMuted || conv.onlyMentionsAllowed)
@@ -504,7 +518,8 @@ object ConversationListRow {
         lastUnreadMessage.fold {
           ""
         } { msg =>
-          subtitleStringForLastMessage(msg, lastUnreadMessageUser, lastUnreadMessageMembers, isGroupConv, selfId)
+          // if we are here, it means there is only one unread message, so if the number of quotes > 0, it means this unread message is a quote
+          subtitleStringForLastMessage(msg, lastUnreadMessageUser, lastUnreadMessageMembers, isGroupConv, selfId, conv.unreadCount.quotes > 0)
         }
       } { usr =>
         formatSubtitle(getString(R.string.conversation_list__typing), usr.getDisplayName, isGroupConv)
